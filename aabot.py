@@ -568,10 +568,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================
 # RUN
 # =====================
-def main():
-    if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing")
-    init_db()
+
     
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
