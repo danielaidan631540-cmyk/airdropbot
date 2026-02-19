@@ -20,7 +20,7 @@ from telegram.ext import (
 # =====================
 # CONFIG (CHANGE THESE)
 # =====================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+BOT_TOKEN = os.getenv("8256239679:AAG2j3mNNNkme0UPeC_buVzS1m6p2peEvJE").strip()
 BOT_USERNAME = "arronairdrop5_bot"   # e.g. aaronairdrops_bot
 ADMIN_ID = 8190754710               # your telegram numeric id
 
@@ -570,9 +570,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError("8256239679:AAEJ_QYSPZmfo6mkA-YwBxpICc0NJN8BOlg")
-
+    raise RuntimeError("BOT_TOKEN is missing")
     init_db()
+    
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(on_verify_gate, pattern="^verify_gate$"))
