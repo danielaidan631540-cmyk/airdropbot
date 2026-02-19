@@ -570,7 +570,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN env var မထည့်ရသေးပါ (Render Environment Variables ထဲမှာ BOT_TOKEN ထည့်ပါ)")
+        raise RuntimeError("8256239679:AAEJ_QYSPZmfo6mkA-YwBxpICc0NJN8BOlg")
 
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
