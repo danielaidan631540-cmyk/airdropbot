@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import time
 from telegram import (
@@ -19,9 +20,9 @@ from telegram.ext import (
 # =====================
 # CONFIG (CHANGE THESE)
 # =====================
-BOT_TOKEN = "8256239679:AAEJ_QYSPZmfo6mkA-YwBxpICc0NJN8BOlg"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_USERNAME = "arronairdrop5_bot"   # e.g. aaronairdrops_bot
-ADMIN_ID = 8190754710                           # your telegram numeric id
+ADMIN_ID = 8190754710               # your telegram numeric id
 
 DAILY_BONUS_MMK = 20
 REF_BONUS_MMK = 20
@@ -283,7 +284,6 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.message.reply_text(text, reply_markup=MAIN_KB)
 
 async def apply_pending_ref_if_any(user_id: int, context: ContextTypes.DEFAULT_TYPE):
-    """After gate verified, apply referral once if pending_ref exists."""
     row = get_user(user_id)
     if not row:
         return
@@ -291,7 +291,7 @@ async def apply_pending_ref_if_any(user_id: int, context: ContextTypes.DEFAULT_T
     if pending is None:
         return
     inviter_id = int(pending)
-    # sanity checks
+
     if inviter_id == user_id:
         clear_pending_ref(user_id)
         return
@@ -311,7 +311,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uname = user.username or ""
     upsert_user(uid, uname)
 
-    # Save referral param immediately as pending (so it won't be lost by gating)
     if context.args:
         arg = context.args[0].strip()
         if arg.startswith("ref_"):
@@ -322,7 +321,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
 
-    # Gate check
     joined_gate = await check_join_all(GATE_CHANNELS, uid, context)
     if not joined_gate:
         await update.message.reply_text(
@@ -332,7 +330,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # If already joined, apply pending ref now (if any)
     await apply_pending_ref_if_any(uid, context)
     await show_menu(update, context)
 
@@ -347,7 +344,6 @@ async def on_verify_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("❌ Gate Channel ၂ ခုလုံး Join မပြီးသေးပါ။", reply_markup=gate_join_kb())
         return
 
-    # Gate verified -> apply referral now (important fix)
     await apply_pending_ref_if_any(uid, context)
     await q.message.reply_text("✅ Verified! အခု မီနူးဝင်နိုင်ပါပြီ။", reply_markup=MAIN_KB)
 
@@ -357,7 +353,6 @@ async def on_verify_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     upsert_user(uid, q.from_user.username or "")
 
-    # Must pass gate first too
     if not await check_join_all(GATE_CHANNELS, uid, context):
         await q.message.reply_text("🚫 Gate Channel ၂ ခု join မပြီးသေးပါ။", reply_markup=gate_join_kb())
         return
@@ -519,7 +514,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == BTN_WD:
         return await on_withdraw(update, context)
 
-    # Withdraw flow (same as before)
     step = context.user_data.get("wd_step")
     if not step:
         await update.message.reply_text("မီနူးကနေရွေးပါ 👇", reply_markup=MAIN_KB)
@@ -575,6 +569,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # RUN
 # =====================
 def main():
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN env var မထည့်ရသေးပါ (Render Environment Variables ထဲမှာ BOT_TOKEN ထည့်ပါ)")
+
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
