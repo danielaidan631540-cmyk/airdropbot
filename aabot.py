@@ -20,7 +20,7 @@ from telegram.ext import (
 # =====================
 # CONFIG (CHANGE THESE)
 # =====================
-BOT_TOKEN = os.getenv("8256239679:AAG2j3mNNNkme0UPeC_buVzS1m6p2peEvJE").strip()
+BOT_TOKEN = "8256239679:AAG2j3mNNNkme0UPeC_buVzS1m6p2peEvJE"
 BOT_USERNAME = "arronairdrop5_bot"   # e.g. aaronairdrops_bot
 ADMIN_ID = 8190754710               # your telegram numeric id
 
