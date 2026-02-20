@@ -568,13 +568,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================
 # RUN
 # =====================
-
-    
+def main():
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(on_verify_gate, pattern="^verify_gate$"))
     app.add_handler(CallbackQueryHandler(on_verify_mission, pattern="^verify_mission$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
     app.run_polling()
 
 if __name__ == "__main__":
