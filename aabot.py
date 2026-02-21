@@ -2,7 +2,6 @@ import os
 import sqlite3
 import time
 import threading
-import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import (
     Update,
@@ -48,11 +47,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is active!")
+        self.wfile.write(b"Bot is alive and running!")
 
 def run_health_server():
+    # Render က ပေးတဲ့ PORT (မရှိရင် 8080) မှာ HTTP Server ဖွင့်ထားပေးပါမယ်
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"Health server started on port {port}")
     server.serve_forever()
 
 # =====================
@@ -73,7 +74,7 @@ def init_db():
 def get_user(user_id):
     with sqlite3.connect(DB_PATH) as con:
         cur = con.cursor()
-        cur.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+        cur.execute("SELECT user_id, username, balance, ref_count, ref_by, pending_ref, last_daily, mission_done FROM users WHERE user_id=?", (user_id,))
         return cur.fetchone()
 
 def upsert_user(user_id, username):
@@ -120,78 +121,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     upsert_user(uid, update.effective_user.username)
     
+    # Referral Checking
     if context.args and context.args[0].startswith("ref_"):
         try:
             inviter = int(context.args[0].replace("ref_", ""))
-            if inviter != uid:
+            user = get_user(uid)
+            if inviter != uid and user and user[4] is None:
                 with sqlite3.connect(DB_PATH) as con:
-                    con.execute("UPDATE users SET pending_ref=? WHERE user_id=? AND ref_by IS NULL", (inviter, uid))
+                    con.execute("UPDATE users SET pending_ref=? WHERE user_id=?", (inviter, uid))
         except: pass
 
     if not await check_join_all(GATE_CHANNELS, uid, context):
         await update.message.reply_text("🚫 Channel အားလုံးကို Join ပေးမှ အသုံးပြုနိုင်ပါမည်။", reply_markup=gate_join_kb())
         return
-
     await update.message.reply_text("🎁 AARON AIRDROP မှ ကြိုဆိုပါတယ်!", reply_markup=MAIN_KB)
 
 async def on_verify_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     uid = q.from_user.id
     if await check_join_all(GATE_CHANNELS, uid, context):
-        # Apply referral bonus if pending
         user = get_user(uid)
-        if user and user[5]: # user[5] is pending_ref
+        if user and user[5]: # Apply pending ref
             inviter_id = user[5]
             with sqlite3.connect(DB_PATH) as con:
-                con.execute("UPDATE users SET ref_by=?, pending_ref=NULL WHERE user_id=?", (inviter_id, uid))
-                con.execute("UPDATE users SET balance=balance+?, ref_count=ref_count+1 WHERE user_id=?", (REF_BONUS_MMK, inviter_id))
+                con.execute("UPDATE users SET ref_by=?, ref_count=ref_count+1, pending_ref=NULL WHERE user_id=?", (inviter_id, uid))
+                con.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (REF_BONUS_MMK, inviter_id))
             try: await context.bot.send_message(inviter_id, f"👥 သင့်လင့်ခ်မှ လူသစ်တစ်ယောက် join သဖြင့် {REF_BONUS_MMK} MMK ရရှိပါသည်!")
             except: pass
-        
         await q.message.reply_text("✅ Verified! မီနူးအသုံးပြုနိုင်ပါပြီ။", reply_markup=MAIN_KB)
     else:
         await q.message.reply_text("❌ Join ရန်ကျန်သေးသည်!", reply_markup=gate_join_kb())
-
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    uid = update.effective_user.id
-    user = get_user(uid)
-    if not user: return
-
-    if text == "လက်ကျန်ငွေ💰":
-        await update.message.reply_text(f"💰 လက်ကျန်ငွေ: {user[2]} MMK\n👥 ဖိတ်ခေါ်သူ: {user[3]} ယောက်")
-    
-    elif text == "နေ့စဉ်ဘောနပ်🎁":
-        now = int(time.time())
-        if now - user[6] >= DAILY_COOLDOWN_SEC:
-            with sqlite3.connect(DB_PATH) as con:
-                con.execute("UPDATE users SET balance=balance+?, last_daily=? WHERE user_id=?", (DAILY_BONUS_MMK, now, uid))
-            await update.message.reply_text(f"✅ ယနေ့အတွက် {DAILY_BONUS_MMK} MMK ရရှိပါပြီ!")
-        else:
-            await update.message.reply_text("⏳ ၂၄ နာရီ မပြည့်သေးပါ။ မနက်ဖြန်မှ ပြန်လာခဲ့ပါ။")
-
-    elif text == "ဖိတ်ခေါ်ရန်👥":
-        link = f"https://t.me/{BOT_USERNAME}?start=ref_{uid}"
-        await update.message.reply_text(f"👥 သင့်ဖိတ်ခေါ်လင့်ခ်:\n{link}\n\nတစ်ယောက်ဖိတ်လျှင် {REF_BONUS_MMK} MMK ရပါမည်။")
-
-    elif text == "Mission 🎯":
-        if user[7] == 1:
-            await update.message.reply_text("✅ သင် Mission ပြီးစီးပြီး ဖြစ်ပါသည်။")
-        else:
-            await update.message.reply_text("🎯 Mission Channel များ Join ပြီး Verify နှိပ်ပါ-", reply_markup=mission_join_kb())
-
-    elif text == "ငွေထုတ်ရန်📤":
-        if user[2] < WITHDRAW_MIN_MMK:
-            await update.message.reply_text(f"❌ အနည်းဆုံး {WITHDRAW_MIN_MMK} MMK ရှိမှ ထုတ်ယူနိုင်ပါမည်။")
-        else:
-            context.user_data['wd_mode'] = True
-            await update.message.reply_text("📤 ထုတ်မည့်ပမာဏ နှင့် Payment အချက်အလက်ပို့ပါ (ဥပမာ- 500 KBZPay 09xxx)")
-
-    elif context.user_data.get('wd_mode'):
-        await context.bot.send_message(ADMIN_ID, f"📤 **Withdraw Request**\nUser ID: {uid}\nInfo: {text}\nBalance: {user[2]} MMK")
-        context.user_data['wd_mode'] = False
-        await update.message.reply_text("✅ တောင်းဆိုမှု Admin ဆီ ပို့ပြီးပါပြီ။")
 
 async def on_verify_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
@@ -201,18 +160,59 @@ async def on_verify_mission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user[7] == 0:
             with sqlite3.connect(DB_PATH) as con:
                 con.execute("UPDATE users SET balance=balance+?, mission_done=1 WHERE user_id=?", (MISSION_REWARD_MMK, uid))
-            await q.message.reply_text(f"✅ Mission အောင်မြင်ပါသည်။ {MISSION_REWARD_MMK} MMK ရရှိပါသည်။")
+            await q.message.reply_text(f"✅ Mission အောင်မြင်ပါသည်။ {MISSION_REWARD_MMK} MMK ရရှိပါသည်။", reply_markup=MAIN_KB)
         else:
             await q.message.reply_text("✅ Mission ပြီးသားဖြစ်ပါသည်။")
     else:
         await q.message.reply_text("❌ Mission များ မပြီးသေးပါ။", reply_markup=mission_join_kb())
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    uid = update.effective_user.id
+    user = get_user(uid)
+    if not user: return
+
+    if text == "လက်ကျန်ငွေ💰":
+        await update.message.reply_text(f"💰 လက်ကျန်ငွေ: {user[2]} MMK\n👥 ဖိတ်ခေါ်သူ: {user[3]} ယောက်")
+    elif text == "နေ့စဉ်ဘောနပ်🎁":
+        now = int(time.time())
+        if now - user[6] >= DAILY_COOLDOWN_SEC:
+            with sqlite3.connect(DB_PATH) as con:
+                con.execute("UPDATE users SET balance=balance+?, last_daily=? WHERE user_id=?", (DAILY_BONUS_MMK, now, uid))
+            await update.message.reply_text(f"✅ ယနေ့အတွက် {DAILY_BONUS_MMK} MMK ရရှိပါပြီ!")
+        else:
+            await update.message.reply_text("⏳ ၂၄ နာရီမပြည့်သေးပါ။ မနက်ဖြန်မှ ပြန်လာခဲ့ပါ။")
+    elif text == "ဖိတ်ခေါ်ရန်👥":
+        await update.message.reply_text(f"👥 သင့်ဖိတ်ခေါ်လင့်ခ်:\nhttps://t.me/{BOT_USERNAME}?start=ref_{uid}")
+    elif text == "Mission 🎯":
+        if user[7] == 1: await update.message.reply_text("✅ Mission ပြီးသားပါ။")
+        else: await update.message.reply_text("🎯 Mission Channel များ Join ပြီး Verify နှိပ်ပါ-", reply_markup=mission_join_kb())
+    elif text == "ထိပ်ဆုံး🎖️":
+        with sqlite3.connect(DB_PATH) as con:
+            cur = con.cursor()
+            cur.execute("SELECT username, ref_count FROM users ORDER BY ref_count DESC LIMIT 10")
+            rows = cur.fetchall()
+            msg = "🎖️ **Top 10 Referrers**\n\n"
+            for i, r in enumerate(rows, 1):
+                msg += f"{i}. @{r[0] if r[0] else 'User'} - {r[1]} refs\n"
+            await update.message.reply_text(msg)
+    elif text == "ငွေထုတ်ရန်📤":
+        if user[2] < WITHDRAW_MIN_MMK:
+            await update.message.reply_text(f"❌ အနည်းဆုံး {WITHDRAW_MIN_MMK} MMK လိုအပ်သည်။")
+        else:
+            context.user_data['wd'] = True
+            await update.message.reply_text("📤 ပမာဏနှင့် Payment အချက်အလက်ပို့ပါ (ဥပမာ- 500 KPay 09xxx)")
+    elif context.user_data.get('wd'):
+        await context.bot.send_message(ADMIN_ID, f"📤 **Withdraw Request**\nUser: {uid}\nInfo: {text}")
+        context.user_data['wd'] = False
+        await update.message.reply_text("✅ တောင်းဆိုမှု ပို့ပြီးပါပြီ။")
 
 # =====================
 # MAIN RUNNER
 # =====================
 def main():
     init_db()
-    # Start Health server in a separate thread
+    # Health Server For Render Port Fix
     threading.Thread(target=run_health_server, daemon=True).start()
 
     application = Application.builder().token(BOT_TOKEN).build()
@@ -223,6 +223,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     print("Bot is starting...")
+    # Polling mode
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
